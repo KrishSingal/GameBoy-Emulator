@@ -13,6 +13,7 @@ public class CPU {
     // Register File
     RegisterFile rf;
 
+    boolean interrupt;
     boolean halt;
 
     final static int ZFLAG_BIT = RegisterFile.ZFLAG_BIT;
@@ -27,18 +28,79 @@ public class CPU {
 
     class Operation {
         String description;
-        int length; // number of bytes
-        int cycles; // machine cycles (m)
-        char [] flags; // Z N H C
         Lambda lambda;
+        char [] flags; // Z N H C
+        int length; // number of bytes
+        int [] cycles; // machine cycles (m)
 
+        public Operation(String description, Lambda lambda, char[] flags, int length, int [] cycles) {
+            this.description = description;
+            this.lambda = lambda;
+            this.flags = flags;
+            this.length = length;
+            this.cycles = cycles;
+        }
 
     }
+
+    Operation[] operations = new Operation[512];
 
     public CPU(){
         clk = new Clock();
         rf = new RegisterFile();
         mmu = new MMU();
+    }
+
+    /*
+             PC     PC+1      PC+2
+    MEMORY  |opcode|immediate|opcode
+             8-bits 8-bits
+    */
+
+    public int tick() {
+        int pc = rf.PC.read();
+        int opcode = mmu.readByte(pc);
+        pc += 1;
+        pc &= 0xFFFF;
+        rf.PC.write(pc);
+
+        Operation op = operations[opcode];
+        
+        op.execute();
+
+    }
+
+    public int d8() {
+        int pc = rf.PC.read();
+        int data = mmu.readByte(pc);
+        pc += 1;
+        pc &= 0xFFFF;
+        rf.PC.write(pc);
+        return data;
+    }
+
+    public int d16() {
+        int lower = d8();
+        int upper = d8();
+        return upper << 8 | lower;
+    }
+
+    public int r8() {
+        int data = d8();
+        // if(data > 127) {
+        //     return -(~data+1);
+        // }
+        // else return data;
+
+        return data > 127 ? -(~data + 1) : data; 
+    }
+
+    public int a8() {
+        return d8();
+    }
+
+    public int a16() {
+        return d16();
     }
 
     public void dispatch(){
@@ -53,6 +115,8 @@ public class CPU {
             clk.t += this.t;
         }
     }
+
+    /* 8-Bit ALU */
 
     public int INC_8(Register r) {
         int result = 0;
@@ -285,26 +349,33 @@ public class CPU {
         rf.setFlag(ZFLAG_BIT, false);
         rf.setFlag(NFLAG_BIT, false);
 
-        int data = 0;
-        int result = 0;
-
         // negative value
-        if(immediate_value > 127) {
-            data = -((~immediate_value+1)&0xFF);
-            result = original + data;
+        // if(immediate_value > 127) {
+        //     data = -((~immediate_value+1)&0xFF);
+        //     result = original + data;
+        //     rf.setFlag(CFLAG_BIT, result < 0);
+        //     rf.setFlag(HFLAG_BIT, (original & 0xFFF) < (data & 0xFFF));
+        // }
+        // // positive value
+        // else {
+        //     data = immediate_value;
+        //     result = original + data;
+        //     rf.setFlag(CFLAG_BIT, result > 0xFFFF);
+        //     rf.setFlag(HFLAG_BIT, (original & 0xFFF) + (data & 0xFFF) > 0x0FFF);
+        // }
+
+        int data = immediate_value;
+        int result = original + data;
+        result &= 0xFFFF; // mask to 16-bit
+
+        if(data < 0) {
             rf.setFlag(CFLAG_BIT, result < 0);
             rf.setFlag(HFLAG_BIT, (original & 0xFFF) < (data & 0xFFF));
         }
-        // positive value
         else {
-            data = immediate_value;
-            result = original + data;
             rf.setFlag(CFLAG_BIT, result > 0xFFFF);
-            rf.setFlag(HFLAG_BIT, (original & 0xFFF) + (data & 0xFFF) > 0x0FFF);
+            rf.setFlag(HFLAG_BIT, (original & 0xFFF) + (data & 0xFFF) > 0x0FFF);   
         }
-
-
-        result &= 0xFFFF; // mask to 16-bit
         
         rf.SP.write(result);
 
@@ -449,6 +520,18 @@ public class CPU {
                 // LD HL, SP+n
                 if(operand2_8bit){
                     result = rf.SP.read() + immediate_value2;
+                    /*int original = rf.SP.read();
+                    int data = 0;
+                    // negative
+                    if(immediate_value2 > 127) {
+                        data = -((~immediate_value2+1)&0xFF);
+                        result = original + data;
+                    }
+                    else{ // positive
+                        data = immediate_value;
+                        result = original + data;
+                    }*/
+                    // TODO: immediate_value2 is a signed value -> done
                 }
                 else{ // ex. LD BC,nn
                     result = immediate_value2;
@@ -559,12 +642,12 @@ public class CPU {
     }
 
     // 0x2F: CPL
-    public int CPL(Register r) {
-        int data = r.read();
+    public int CPL() {
+        int data = rf.A.read();
 
         int result = ~data;
 
-        r.write(result);
+        rf.A.write(result);
 
         return result;
     }
@@ -588,6 +671,20 @@ public class CPU {
     public int HALT() {
         halt = true;
         return 0;
+    }
+
+    // TODO: STOP length is 2!
+    public int STOP() {
+        halt = true; // TODO: stop flag? how is it different?
+        return 0;
+    }
+
+    public int DI() {
+        interrupt = false;
+    }
+
+    public int EI() {
+        interrupt = true;
     }
 
     /* Rotates & Shifts */
@@ -802,39 +899,46 @@ public class CPU {
 
     /* Jumps */
 
-    /* one operand jumps */
+    public enum Condition {
+        NZ,
+        Z,
+        NC,
+        C,
+        NONE
+    }
 
-    public int JP(Register r1, int immediate_value1, String condition, int immediate_value2){
+    public int JP(Register r1, int immediate_value, Condition c){
         int location = 0;
+        boolean jump = false;
 
         if(r1 == null){ // JP nn or JP cc, nn
-            if(condition == null){ // JP nn
-                location = immediate_value1;
-
-                rf.PC.write(location);
+            switch(c){
+                // JP cc,nn
+                case NZ:
+                    jump = !(rf.isFlagSet(ZFLAG_BIT));
+                    break;
+                case Z:
+                    jump = rf.isFlagSet(ZFLAG_BIT);
+                    break;
+                case NC:
+                    jump = !(rf.isFlagSet(CFLAG_BIT));
+                    break;
+                case C: 
+                    jump = rf.isFlagSet(CFLAG_BIT);
+                    break;
+                case NONE: // JP nn
+                    jump = true;
             }
-            else{ // JP cc, nn
-                location = immediate_value2;
 
-                boolean jump = false;
-                switch(condition){
-                    case "NZ":
-                        jump = !(rf.isFlagSet(ZFLAG_BIT));
-                    case "Z":
-                        jump = rf.isFlagSet(ZFLAG_BIT);
-                    case "NC":
-                        jump = !(rf.isFlagSet(CFLAG_BIT));
-                    case "C": 
-                        jump = rf.isFlagSet(CFLAG_BIT);
-                }
+            location = immediate_value;
 
-                if(jump)
-                    rf.PC.write(location);
-            }
-            
         }
         else{ // JP (HL) 
-            location = mmu.readByte(rf.HL.read()); // TODO: Check wording of this in document
+            location = rf.HL.read(); 
+            jump = true;
+        }
+
+        if(jump){
             rf.PC.write(location);
         }
 
@@ -843,35 +947,101 @@ public class CPU {
 
     /* relative jump */
 
-    public int JR(String condition, int immediate_value1, int immediate_value2){
+    public int JR(Condition c, int immediate_value){
         int original = rf.PC.read();
-        int location = 0;
+        int location = original + immediate_value;
+        location &= 0xFFFF;
 
-        if(condition == null){ // unconditional jump JR n
-            location = original + immediate_value1;
-
-            rf.PC.write(location);
+        boolean jump = false;
+        
+        switch(c){
+            // JR cc,nn
+            case NZ:
+                jump = !(rf.isFlagSet(ZFLAG_BIT));
+                break;
+            case Z:
+                jump = rf.isFlagSet(ZFLAG_BIT);
+                break;
+            case NC:
+                jump = !(rf.isFlagSet(CFLAG_BIT));
+                break;
+            case C: 
+                jump = rf.isFlagSet(CFLAG_BIT);
+                break;
+            case NONE: // JR nn
+                jump = true;
         }
-        else{ // conditional jump JR cc, n
-            location = original + immediate_value2;
 
-            boolean jump = false;
-            switch(condition){
-                case "NZ":
-                    jump = !(rf.isFlagSet(ZFLAG_BIT));
-                case "Z":
-                    jump = rf.isFlagSet(ZFLAG_BIT);
-                case "NC":
-                    jump = !(rf.isFlagSet(CFLAG_BIT));
-                case "C": 
-                    jump = rf.isFlagSet(CFLAG_BIT);
-            }
-
-            if(jump)
-                rf.PC.write(location);
+        if(jump){
+            rf.PC.write(location);
         }
 
         return location;
     }
     
+    public int CALL(Condition c, int immediate_value){
+        boolean call = false;
+        int location = immediate_value;
+
+        switch(c){
+            case NZ:
+                call = !(rf.isFlagSet(ZFLAG_BIT));
+                break;
+            case Z:
+                call = rf.isFlagSet(ZFLAG_BIT);
+                break;
+            case NC:
+                call = !(rf.isFlagSet(CFLAG_BIT));
+                break;
+            case C: 
+                call = rf.isFlagSet(CFLAG_BIT);
+                break;
+            case NONE:
+                call = true;
+        }
+
+        if(call){
+            // push pc+1 onto stack
+
+            int original = rf.SP.read();
+            int result = (original - 2) & 0xFFFF;
+            result &= 0xFFFF;
+            rf.SP.write(result);
+
+            // TODO: check if data is written before/after SP is decremented
+            mmu.writeWord(rf.SP.read(), rf.SP.read() + 1);
+
+            JP(null, immediate_value, Condition.NONE);
+        }
+        
+    }
+
+
+    public int RST(int immediate_value) {
+        return CALL(Condition.NONE, immediate_value);
+    }
+
+    public int RET(Condition c, boolean interrupt_enabled) {
+        boolean satisfied = c == Condition.NONE ||
+                            c == Condition.NZ && !rf.isFlagSet(ZFLAG_BIT) ||
+                            c == Condition.Z && rf.isFlagSet(ZFLAG_BIT) ||
+                            c == Condition.NC && !rf.isFlagSet(CFLAG_BIT) ||
+                            c == Condition.C && rf.isFlagSet(CFLAG_BIT);
+
+        int address = 0;
+        if(satisfied) {
+            int original = SP.read();
+            address = mmu.readWord(original);
+            int result = original + 2;
+            result &= 0xFFFF;
+            rf.SP.write(result);
+            rf.PC.write(address);
+            interrupt = interrupt_enabled;
+        }
+
+        return address;
+    }
+
+    public void define_ops() {
+    }
 }

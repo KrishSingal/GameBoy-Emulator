@@ -52,7 +52,7 @@ public class RegisterFile {
     }
 
     public int getFlag(int bit) {
-        return (F.read() >> bit) & 1; // why do you need to & with 1?
+        return (F.read() >> bit) & 1; 
     }
 
     public boolean isFlagSet(int bit) {
@@ -72,7 +72,7 @@ class Register8Bit implements Register {
     }
 
     public void write(int value) {
-        this.value = value;
+        this.value = value & 0x00FF;
     }
 }   
 
@@ -103,7 +103,7 @@ class Register16Bit implements Register {
     }
 
     public void write(int value) {
-        this.value = value;
+        this.value = (value & 0xFFFF);
     }
 
     public int read() {

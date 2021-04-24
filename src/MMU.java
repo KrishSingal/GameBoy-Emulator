@@ -112,6 +112,8 @@ public class MMU {
     }
 
     public void writeByte(int address, int value){
+        value &= 0x00FF;
+        
         switch(address & 0xF000){
             case 0x1000:
             case 0x2000:
