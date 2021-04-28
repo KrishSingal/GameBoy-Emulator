@@ -6,7 +6,11 @@ import java.io.InputStream;
 
 public class MMUTest2 {
     public static void main(String[] args) throws Exception {
-        MMU mem = new MMU();
+        GPU gpu = new GPU();
+
+        APU apu = new APU();
+
+        MMU mem = new MMU(gpu, apu);
 
         InputStream input = new FileInputStream("test/01-special.gb");
 

@@ -8,19 +8,26 @@ public class MMU {
     int[] WorkingRAMContent;
     int[] ExternalRAMContent;
     int[] ZeroPageRAMContent;
+    int[] IO;
 
-    boolean finished_bios;    
+    boolean finished_bios;
+    
+    GPU gpu;
+    APU apu;
 
-    public MMU() {
+    public MMU(GPU gpu, APU apu) {
         // BiosContent = new int[0x00FF - 0x0000];
         ROMContent = new int[0x8000 - 0x0000];
         WorkingRAMContent = new int[0xFE00 - 0xC000];
         ExternalRAMContent = new int[0xC000 - 0xA000];
         ZeroPageRAMContent = new int[0x10000 - 0xFF80];
+        IO = new int[0xFF80 - 0xFF00];
 
         init_bios();
 
         finished_bios = false;
+        this.gpu = gpu;
+        this.apu = apu;
     }
 
     public int readByte(int address) {
@@ -28,9 +35,9 @@ public class MMU {
             return BiosContent[address];
         }
         
-        if(!finished_bios && address >= 0x00FF){
-            finished_bios = true;
-        }
+//        if(!finished_bios && address >= 0x00FF){
+//            finished_bios = true;
+//        }
         
         switch(address & 0xF000) {
             // ROM Bank 0
@@ -50,7 +57,7 @@ public class MMU {
             // VRAM
             case 0x8000:
             case 0x9000:
-//                return GPU.vram[address - 0x8000];
+                return gpu.VRAM[address - 0x8000];
 
             // External RAM
             case 0xA000:
@@ -79,7 +86,7 @@ public class MMU {
                     // OAM for sprites
                     case 0xE00:
                         if(address < 0xFEA0){
-//                            return GPU.oam[address - 0xFE00];
+                            return gpu.OAM[address - 0xFE00];
                         }
                         else{
                             return 0;
@@ -88,10 +95,17 @@ public class MMU {
                     // zero page RAM and I/O
                     case 0xF00:
                         if(address >= 0xFF80){ 
-                            return ZeroPageRAMContent[address-0xFF00];
+                            return ZeroPageRAMContent[address-0xFF80];
+                        }
+                        else if(address >= 0xFF40) {
+//                            System.out.println("MMU GPU rb");
+                            return gpu.readByte(address);
+                        }
+                        else if(address >= 0xFF10) {
+                            return apu.readByte(address);
                         }
                         else{ // I/O Mapping
-                            return 0;
+                            return gpu.readByte(address);
                         }
                 }
         }
@@ -113,7 +127,8 @@ public class MMU {
 
     public void writeByte(int address, int value){
         value &= 0x00FF;
-        
+//        System.out.println(Integer.toString(address, 16));
+
         switch(address & 0xF000){
             case 0x1000:
             case 0x2000:
@@ -123,46 +138,70 @@ public class MMU {
             case 0x6000:
             case 0x7000:
                 ROMContent[address] = value;
+                return;
             
             case 0x8000:
             case 0x9000:
-                // GPU.vram[address - 0x8000] = value;
+                System.out.println("address: " + Integer.toHexString(address));
+                System.out.println("value: " + Integer.toHexString(value));
+                long time = System.currentTimeMillis();
+                System.out.println(time);
+
+                gpu.VRAM[address - 0x8000] = value;
+                gpu.updateTile(address, value);
+                return;
 
             case 0xA000:
             case 0xB000:
                 ExternalRAMContent[address - 0xA000] = value;
+                return;
             
             case 0xC000:
             case 0xD000:
             case 0xE000:
                 ExternalRAMContent[address - 0xC000] = value;
+                return;
 
             case 0xF000:
-            switch(address & 0x0F00) { // address by the next 4 bits
+                switch(address & 0x0F00) { // address by the next 4 bits
                 // Working RAM shadow
                 case 0x000: case 0x100: case 0x200: case 0x300:
                 case 0x400: case 0x500: case 0x600: case 0x700:
                 case 0x800: case 0x900: case 0xA00: case 0xB00:
                 case 0xC00: case 0xD00:
                     WorkingRAMContent[address - 0xC000] = value;
+                    return;
 
                 // Graphics Memory
                 // OAM for sprites
                 case 0xE00:
                     if(address < 0xFEA0){
-//                      GPU.oam[address - 0xFE00] = value;
+                        gpu.OAM[address - 0xFE00] = value;
+                        return;
                     }
                     else{
                         // everything else in OAM should remain as 0 even when written into
+
+                        return;
                     }
                 
                 // zero page RAM and I/O
                 case 0xF00:
                     if(address >= 0xFF80){ 
-                        ZeroPageRAMContent[address-0xFF00] = value;
+                        ZeroPageRAMContent[address-0xFF80] = value;
+                        return;
+                    }
+                    else if(address >= 0xFF40) {
+                        gpu.writeByte(address, value);
+                        return;
+                    }
+                    else if(address >= 0xFF10) {
+                        apu.writeByte(address, value);
                     }
                     else{ // I/O Mapping
                         // not set up yet
+                        IO[address - 0xFF00] = value;
+                        return;
                     }
             }
         
@@ -170,8 +209,14 @@ public class MMU {
     }
 
     public void writeWord(int address, int value){
-        writeByte(value & 0x00FF, address); // write lower 8 bits into smaller memory address
-        writeByte(value & 0xFF00, address+1); // write upper 8 bits into larger memory address
+//        System.out.println(Integer.toString(address, 16));
+//        System.out.println(Integer.toString(address + 1, 16));
+        writeByte(address, value & 0x00FF); // write lower 8 bits into smaller memory address
+        writeByte(address+1, value >> 8); // write upper 8 bits into larger memory address
+//        System.out.println(Integer.toString(readWord(address), 16));
+//        System.out.println(Integer.toString(readByte(address), 16));
+//        System.out.println(Integer.toString(readByte(address + 1), 16));
+//        System.out.println(Integer.toString(address + 1, 16));
     }
 
     public void init_bios() {

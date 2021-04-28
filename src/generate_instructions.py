@@ -61,7 +61,7 @@ for instruction_data in alu_ops_8bit:
         lambda_function = '(CPU cpu) -> cpu.DEC_8(rf.{})'.format(operand1)
         covered_8bit_alu_ops.append(opcode)
     if mnemonic == 'DAA':
-        lambda_function = '(CPU cpu) -> cpu.DAA(rf.{})'.format(operand1)
+        lambda_function = '(CPU cpu) -> cpu.DAA(rf.A)'
         covered_8bit_alu_ops.append(opcode)
     if mnemonic == 'SCF':
         lambda_function = '(CPU cpu) -> cpu.SCF()'
@@ -73,28 +73,28 @@ for instruction_data in alu_ops_8bit:
         lambda_function = '(CPU cpu) -> cpu.CPL()'
         covered_8bit_alu_ops.append(opcode)
     if mnemonic == 'ADD':
-        lambda_function = '(CPU cpu) -> cpu.ADD_8({}, {}, {}, false)'.format(operand1, 'null' if length == 2 else operand2, 'd8()' if length == 2 else 0)
+        lambda_function = '(CPU cpu) -> cpu.ADD_8(rf.{}, {}, {}, false)'.format(operand1, 'null' if length == 2 else 'rf.'+operand2, 'd8()' if length == 2 else 0)
         covered_8bit_alu_ops.append(opcode)
     if mnemonic == 'ADC':
-        lambda_function = '(CPU cpu) -> cpu.ADC({}, {}, {}, true)'.format(operand1, 'null' if length == 2 else operand2, 'd8()' if length == 2 else 0)
+        lambda_function = '(CPU cpu) -> cpu.ADC(rf.{}, {}, {})'.format(operand1, 'null' if length == 2 else 'rf.'+operand2, 'd8()' if length == 2 else 0)
         covered_8bit_alu_ops.append(opcode)
     if mnemonic == 'SUB':
-        lambda_function = '(CPU cpu) -> cpu.SUB({}, {}, {}, false, true)'.format(operand1, 'null' if length == 2 else operand2, 'd8()' if length == 2 else 0)
+        lambda_function = '(CPU cpu) -> cpu.SUB(rf.{}, {}, {}, false, true)'.format('A', 'null' if length == 2 else 'rf.'+operand1, 'd8()' if length == 2 else 0)
         covered_8bit_alu_ops.append(opcode)
     if mnemonic == 'SBC':
-        lambda_function = '(CPU cpu) -> cpu.SBC({}, {}, {})'.format(operand1, 'null' if length == 2 else operand2, 'd8()' if length == 2 else 0)
+        lambda_function = '(CPU cpu) -> cpu.SBC(rf.{}, {}, {})'.format(operand1, 'null' if length == 2 else 'rf.'+operand2, 'd8()' if length == 2 else 0)
         covered_8bit_alu_ops.append(opcode)
     if mnemonic == 'CP':
-        lambda_function = '(CPU cpu) -> cpu.CP({}, {}, {})'.format('A', 'null' if operand1 == 'd8' else operand1, 'd8()' if length == 2 else 0)
+        lambda_function = '(CPU cpu) -> cpu.CP(rf.{}, {}, {})'.format('A', 'null' if operand1 == 'd8' else 'rf.'+operand1, 'd8()' if length == 2 else 0)
         covered_8bit_alu_ops.append(opcode)
     if mnemonic == 'AND':
-        lambda_function = '(CPU cpu) -> cpu.AND({}, {}, {})'.format('A', 'null' if operand1 == 'd8' else operand1, 'd8()' if length == 2 else 0)
+        lambda_function = '(CPU cpu) -> cpu.AND(rf.{}, {}, {})'.format('A', 'null' if operand1 == 'd8' else 'rf.'+operand1, 'd8()' if length == 2 else 0)
         covered_8bit_alu_ops.append(opcode)
     if mnemonic == 'OR':
-        lambda_function = '(CPU cpu) -> cpu.OR({}, {}, {})'.format('A', 'null' if operand1 == 'd8' else operand1, 'd8()' if length == 2 else 0)
+        lambda_function = '(CPU cpu) -> cpu.OR(rf.{}, {}, {})'.format('A', 'null' if operand1 == 'd8' else 'rf.'+operand1, 'd8()' if length == 2 else 0)
         covered_8bit_alu_ops.append(opcode)
     if mnemonic == 'XOR':
-        lambda_function = '(CPU cpu) -> cpu.XOR({}, {}, {})'.format('A', 'null' if operand1 == 'd8' else operand1, 'd8()' if length == 2 else 0)
+        lambda_function = '(CPU cpu) -> cpu.XOR(rf.{}, {}, {})'.format('A', 'null' if operand1 == 'd8' else 'rf.'+operand1, 'd8()' if length == 2 else 0)
         covered_8bit_alu_ops.append(opcode)
         
     # hack to make sure we only add operations we've implemented
@@ -104,7 +104,7 @@ for instruction_data in alu_ops_8bit:
     # Lambda l = ...
     # operations[opcode] = new Operation(description, (CPU cpu) -> cpu.INC_8(rf.operand1), flags_affected, length, cycles)
 
-print('finished 8-bit ALU' if set(covered_8bit_alu_ops) == set([x['addr'] for x in alu_ops_8bit]) else 'not finished 8-bit ALU')
+# print('finished 8-bit ALU' if set(covered_8bit_alu_ops) == set([x['addr'] for x in alu_ops_8bit]) else 'not finished 8-bit ALU')
 # print(set([x['addr'] for x in alu_ops_8bit]) - set(covered_8bit_alu_ops))
 
 
@@ -162,7 +162,7 @@ for instruction_data in alu_ops_16bit:
     if opcode in covered_16bit_alu_ops:
         operation_map[opcode] = write_op_def(opcode, description, lambda_function, flags_affected, length, cycles)
 
-print('finished 16-bit ALU' if set(covered_16bit_alu_ops) == set([x['addr'] for x in alu_ops_16bit]) else 'not finished 16-bit ALU')
+# print('finished 16-bit ALU' if set(covered_16bit_alu_ops) == set([x['addr'] for x in alu_ops_16bit]) else 'not finished 16-bit ALU')
 # print(set([x['addr'] for x in alu_ops_8bit]) - set(covered_8bit_alu_ops))
 
 
@@ -229,7 +229,7 @@ for instruction_data in misc_ops:
     if opcode in covered_misc_ops:
         operation_map[opcode] = write_op_def(opcode, description, lambda_function, flags_affected, length, cycles)
 
-print('finished misc' if set(covered_misc_ops) == set([x['addr'] for x in misc_ops]) else 'not finished misc')
+# print('finished misc' if set(covered_misc_ops) == set([x['addr'] for x in misc_ops]) else 'not finished misc')
 
 # 8-Bit Loads
 
@@ -293,7 +293,7 @@ for instruction_data in load_ops_8bit:
     if opcode in covered_8bit_load_ops:
         operation_map[opcode] = write_op_def(opcode, description, lambda_function, flags_affected, length, cycles)
 
-print('finished 8-bit loads' if set(covered_8bit_load_ops) == set([x['addr'] for x in load_ops_8bit]) else 'not finished 8-bit loads')
+# print('finished 8-bit loads' if set(covered_8bit_load_ops) == set([x['addr'] for x in load_ops_8bit]) else 'not finished 8-bit loads')
 
 
 
@@ -344,16 +344,16 @@ for instruction_data in load_ops_16bit:
         lambda_function = '(CPU cpu) -> cpu.LD_16({}, {}, {}, {}, {}, {})'.format(r1, r2, immediate_value1, immediate_value2, operand1_8bit, operand2_8bit)
         covered_16bit_load_ops.append(opcode)
     if mnemonic == 'POP':
-        lambda_function = '(CPU cpu) -> cpu.POP({})'.format(operand1)
+        lambda_function = '(CPU cpu) -> cpu.POP(rf.{})'.format(operand1)
         covered_16bit_load_ops.append(opcode)
     if mnemonic == 'PUSH':
-        lambda_function = '(CPU cpu) -> cpu.POP({})'.format(operand1)
+        lambda_function = '(CPU cpu) -> cpu.PUSH(rf.{})'.format(operand1)
         covered_16bit_load_ops.append(opcode)
 
     if opcode in covered_16bit_load_ops:
         operation_map[opcode] = write_op_def(opcode, description, lambda_function, flags_affected, length, cycles)
 
-print('finished 16-bit loads' if set(covered_16bit_load_ops) == set([x['addr'] for x in load_ops_16bit]) else 'not finished 16-bit loads')
+# print('finished 16-bit loads' if set(covered_16bit_load_ops) == set([x['addr'] for x in load_ops_16bit]) else 'not finished 16-bit loads')
 
 
 
@@ -395,14 +395,14 @@ for instruction_data in control_ops:
     '''
     if mnemonic == 'JP':
         condition = 'NONE' if operand2 == None else operand1
-        lambda_function = '(CPU cpu) -> cpu.JP(rf.{}, {}, Condition.{})'.format('null' if operand2 == 'a16' else operand2, 'a16()' if operand2 == 'a16' else '-1', condition)
+        lambda_function = '(CPU cpu) -> cpu.JR(Condition.{}, {})'.format(condition, 'a16()' if operand2 != None else -1)
         covered_control_ops.append(opcode)
     if mnemonic == 'JR':
         condition = 'NONE' if operand2 == None else operand1
-        lambda_function = '(CPU cpu) -> cpu.JP(rf.{}, {}, Condition.{})'.format('null' if operand2 == 'a16' else operand2, 'a16()' if operand2 == 'a16' else '-1', condition)
+        lambda_function = '(CPU cpu) -> cpu.JR(Condition.{}, r8())'.format(condition)
         covered_control_ops.append(opcode)
     if mnemonic == 'CALL':
-        condition = 'NONE' if operand1 == None else operand1
+        condition = 'NONE' if operand2 == None else operand1
         lambda_function = '(CPU cpu) -> cpu.CALL(Condition.{}, a16())'.format(condition)
         covered_control_ops.append(opcode)
     if mnemonic == 'RET':
@@ -419,7 +419,7 @@ for instruction_data in control_ops:
     if opcode in covered_control_ops:
         operation_map[opcode] = write_op_def(opcode, description, lambda_function, flags_affected, length, cycles)
 
-print('finished control flow' if set(covered_control_ops) == set([x['addr'] for x in control_ops]) else 'not finished control flow')
+# print('finished control flow' if set(covered_control_ops) == set([x['addr'] for x in control_ops]) else 'not finished control flow')
 
 
 # rotations and shifts
@@ -468,16 +468,17 @@ for instruction_data in unprefixed_bit_ops:
         lambda_function = '(CPU cpu) -> cpu.RR(rf.A)'
         covered_unprefixed_bit_ops.append(opcode)
 
-    if opcode in covered_control_ops:
+    if opcode in covered_unprefixed_bit_ops:
         operation_map[opcode] = write_op_def(opcode, description, lambda_function, flags_affected, length, cycles)
 
-print('finished unprefixed bit ops' if set(covered_unprefixed_bit_ops) == set([x['addr'] for x in unprefixed_bit_ops]) else 'not finished unprefixed bit ops')
+# print('finished unprefixed bit ops' if set(covered_unprefixed_bit_ops) == set([x['addr'] for x in unprefixed_bit_ops]) else 'not finished unprefixed bit ops')
 
 
 # CB-Prefixed Bit Ops
 
 cbprefixed_bit_ops = [data['cbprefixed'][x] for x in data['cbprefixed'] if data['cbprefixed'][x]['group'] == 'x8/rsb']
 covered_cbprefixed_bit_ops = []
+prefixed_operation_map = {}
 
 for instruction_data in cbprefixed_bit_ops:
     mnemonic = instruction_data['mnemonic']
@@ -542,13 +543,16 @@ for instruction_data in cbprefixed_bit_ops:
         lambda_function = '(CPU cpu) -> cpu.RES(rf.{}, {})'.format(operand2, operand1)
         covered_cbprefixed_bit_ops.append(opcode)
 
-    if opcode in covered_control_ops:
-        operation_map[opcode] = write_op_def('0x100+' + opcode, description, lambda_function, flags_affected, length, cycles)
+    if opcode in covered_cbprefixed_bit_ops:
+        prefixed_operation_map[opcode] = write_op_def('0x100+' + opcode, description, lambda_function, flags_affected, length, cycles)
 
-print('finished cbprefixed bit ops' if set(covered_cbprefixed_bit_ops) == set([x['addr'] for x in cbprefixed_bit_ops]) else 'not finished cbprefixed bit ops')
+# print('finished cbprefixed bit ops' if set(covered_cbprefixed_bit_ops) == set([x['addr'] for x in cbprefixed_bit_ops]) else 'not finished cbprefixed bit ops')
 
 
 # Final Output
 
-# for operation in sorted(operation_map):
-#     print(operation_map[operation])
+with open('generated_output.txt', 'w') as f:
+    for operation in sorted(operation_map):
+        f.write(operation_map[operation] + '\n')
+    for operation in sorted(prefixed_operation_map):
+        f.write(prefixed_operation_map[operation] + '\n')

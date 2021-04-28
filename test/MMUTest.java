@@ -7,7 +7,11 @@ class MMUTest {
 
     @Test
     public void loadROMTest() throws IOException {
-        MMU mem = new MMU();
+        GPU gpu = new GPU();
+
+        APU apu = new APU();
+
+        MMU mem = new MMU(gpu, apu);
 
         File romFile = new File("01-special.gb");
         mem.loadROM(romFile.toPath());
