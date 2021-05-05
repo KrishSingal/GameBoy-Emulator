@@ -1,4 +1,6 @@
 import java.awt.*;
+import java.awt.event.KeyEvent;
+import java.awt.event.KeyListener;
 import java.awt.image.*;
 import java.io.File;
 import java.io.IOException;
@@ -6,7 +8,7 @@ import java.util.concurrent.TimeUnit;
 import javax.imageio.ImageIO;
 import javax.swing.*;
 
-public class Display extends Canvas implements Runnable {
+public class Display extends Canvas implements Runnable{
     int width = 160;
     int height = 144;
     int scale = 5;
@@ -16,6 +18,7 @@ public class Display extends Canvas implements Runnable {
     boolean running = false;
     public JFrame frame;
 
+    Input input;
     //public Screen screen;
 
     private BufferedImage image = new BufferedImage(width, height, BufferedImage.TYPE_INT_RGB);
@@ -35,6 +38,8 @@ public class Display extends Canvas implements Runnable {
                 image.setRGB(i,j,0xFFFFFF);
             }
         }*/
+        input = new Input();
+        addKeyListener(input);
     }
 
     public synchronized void start(){
@@ -108,18 +113,4 @@ public class Display extends Canvas implements Runnable {
         running = false;
     }
 
-    public static void main(String args[]){
-        /*
-        Display game = new Display();
-        game.frame.setResizable(false); // should be first thing
-        game.frame.setTitle("GameBoy");
-        game.frame.add(game); // adds canvas display-able object
-        game.frame.pack(); // makes size same as frame?
-        game.frame.setDefaultCloseOperation(JFrame.EXIT_ON_CLOSE); // ends process when window is closed
-        game.frame.setLocationRelativeTo(null);
-        game.frame.setVisible(true);
-
-        game.start();
-        */
-    }
 }

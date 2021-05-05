@@ -251,4 +251,21 @@ public class CPUTest {
     }
 
      */
+
+    @Test
+    public void checkROMTest() throws IOException {
+//        GPU gpu = new GPU();
+//
+//        APU apu = new APU();
+//
+//        MMU mmu = new MMU(gpu, apu);
+//
+//        CPU cpu = new CPU(mmu);
+//
+//        cpu.mmu.loadROM(new File("roms/tetris.gb").toPath());
+//
+//        for(int i = 0; i < 100; i++) {
+//            System.out.println(Integer.toHexString(i) + " : " + cpu.mmu.ROMContent[i]);
+//        }
+    }
 }

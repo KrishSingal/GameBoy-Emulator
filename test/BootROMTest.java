@@ -10,17 +10,10 @@ import static org.junit.jupiter.api.Assertions.assertEquals;
 public class BootROMTest {
     @Test
     public void bootROMTest() throws IOException {
-        GPU gpu = new GPU();
+        
+        GameBoy gb = new GameBoy();
 
-        APU apu = new APU();
-
-        MMU mmu = new MMU(gpu, apu);
-
-        CPU cpu = new CPU(mmu);
-
-        cpu.mmu.loadROM(new File("roms/tetris.gb").toPath());
-
-        GameBoy gb = new GameBoy(cpu, gpu);
+        gb.loadROM("roms/02-interrupts.gb");
 
         // $0000
         gb.step(); // LD SP,$fffe
@@ -99,7 +92,7 @@ public class BootROMTest {
 
         gb.step(); // JR NZ Addr_0098 ; 00a1
 
-        while (cpu.rf.PC.read() != 0x00a3) {
+        while (gb.readPC() != 0x00a3) {
             gb.step();
         }
 
@@ -113,12 +106,12 @@ public class BootROMTest {
 
         gb.step(); // CALL $0096		; $002b
 
-        while (cpu.rf.PC.read() != 0x00a3) {
+        while (gb.readPC() != 0x00a3) {
             gb.step();
         }
 
         // Finish loading logo data from cart into video RAM
-        while (cpu.rf.PC.read() != 0x0034) {
+        while (gb.readPC() != 0x0034) {
             gb.step();
         }
 
@@ -132,7 +125,7 @@ public class BootROMTest {
         gb.step(); // DEC B			; $003d
 
         // finish loading in that tile
-        while (cpu.rf.PC.read() != 0x0040) {
+        while (gb.readPC() != 0x0040) {
             gb.step();
         }
 
@@ -152,7 +145,7 @@ public class BootROMTest {
         gb.step(); // LD L,$0f		; $0051
         gb.step(); // JR Addr_0048	; $0053
 
-        while(cpu.rf.PC.read() != 0x0055) {
+        while(gb.readPC() != 0x0055) {
             gb.step();
         }
 
@@ -182,7 +175,7 @@ public class BootROMTest {
 
         gb.step();
 
-        while(cpu.rf.PC.read() != 0x006a) {
+        while(gb.readPC() != 0x006a) {
             gb.step();
         }
 
@@ -190,7 +183,7 @@ public class BootROMTest {
         gb.step();
 
         // JR NZ, Addr_0064	; $006b
-        while(cpu.rf.PC.read() != 0x006d) {
+        while(gb.readPC() != 0x006d) {
             gb.step();
         }
 
@@ -198,7 +191,7 @@ public class BootROMTest {
         gb.step();
 
         // JR NZ, Addr_0062	; $006e
-        while(cpu.rf.PC.read() != 0x0070) {
+        while(gb.readPC() != 0x0070) {
             gb.step();
         }
 
@@ -211,7 +204,7 @@ public class BootROMTest {
         gb.step(); // CP $62		; $0076  $62 counts in, play sound #1
 
         // // JR Z, Addr_0080	; $0078
-        while(cpu.rf.PC.read() != 0x007a) {
+        while(gb.readPC() != 0x007a) {
             gb.step();
         }
 
@@ -226,7 +219,7 @@ public class BootROMTest {
         gb.step(); // DEC D			; $008b
 
 //         JR NZ, Addr_0060	; $008c
-        while(cpu.rf.PC.read() != 0x008e) {
+        while(gb.readPC() != 0x008e) {
             gb.step();
         }
 
@@ -241,7 +234,7 @@ public class BootROMTest {
 
         gb.step();
 
-        while(cpu.rf.PC.read() != 0x008e) {
+        while(gb.readPC() != 0x008e) {
             gb.step();
         }
 
@@ -265,10 +258,11 @@ public class BootROMTest {
         gb.step(); // CP $34		; $00ed	;do this for $30 bytes
         gb.step(); // JR NZ, Addr_00E6	; $00ef
 
-        while(cpu.rf.PC.read() != 0x00f1) {
+        while(gb.readPC() != 0x00f1) {
             gb.step();
         }
-
+//        cpu.DEBUG = true;
+        gb.onDebug();
         gb.step(); // LD B,$19		; $00f1
         gb.step(); // LD A,B		; $00f3
 
@@ -278,7 +272,7 @@ public class BootROMTest {
         gb.step(); // DEC B			; $00f6
         gb.step(); // JR NZ, Addr_00F4	; $00f7
 
-        while(cpu.rf.PC.read() != 0x00f9) {
+        while(gb.readPC() != 0x00f9) {
             gb.step();
         }
 
@@ -291,6 +285,36 @@ public class BootROMTest {
 
 //        for(int i = 0; i < gpu.VRAM.length; i++) {
 //            System.out.println(Integer.toHexString(0x8000 + i) + " : " + gpu.VRAM[i]);
+//        }
+
+        // TODO: Check that BIOS finishes automatically
+//        cpu.mmu.finished_bios = true;
+//        System.out.println(Integer.toHexString(cpu.rf.PC.read()));
+
+//        cpu.DEBUG = true;
+        gb.onDebug();
+
+        gb.step(); // nop
+
+        gb.step(); // jp main
+
+        gb.step(); // jp 0x020c
+
+        gb.step(); // xor
+
+        gb.step(); // ld
+
+        gb.step(); // ld
+
+        gb.step(); // ld
+
+        gb.step(); // ld
+
+
+
+//        long currTime = System.currentTimeMillis();
+//        while(System.currentTimeMillis() < currTime + 100000) {
+//            gb.step();
 //        }
     }
 }

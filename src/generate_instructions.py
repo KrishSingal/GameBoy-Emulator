@@ -280,7 +280,7 @@ for instruction_data in load_ops_8bit:
     op2_mem = str(operand2_mem).lower()
     operand1_8bit = 'true' if r1 == 'null' and operand1 == 'a8' else 'false'
     operand2_8bit = 'true' if r2 == 'null' and (operand2 == 'd8' or operand2 == 'a8') else 'false'
-    increment = str(mnemonic == 'LDH' or '+' in operand1 or '+' in operand2).lower()
+    increment = str('+' in operand1 or '+' in operand2).lower()
     decrement = str('-' in operand1 or '-' in operand2).lower()
 
     r1 = re.sub('[+-]', '', r1)
@@ -339,6 +339,7 @@ for instruction_data in load_ops_16bit:
         r2 = 'null' if operand2 == 'd16' or opcode == '0xf8' else 'rf.{}'.format(operand2)
         immediate_value1 = '{}()'.format(operand1) if operand1 == 'a16' else '-1'
         immediate_value2 = '{}()'.format(operand2) if operand2 == 'd16' else '-1'
+        immediate_value2 = '{}()'.format('r8') if 'r8' in operand2 else immediate_value2
         operand1_8bit = 'false'
         operand2_8bit = 'true' if opcode == '0xf8' else 'false'
         lambda_function = '(CPU cpu) -> cpu.LD_16({}, {}, {}, {}, {}, {})'.format(r1, r2, immediate_value1, immediate_value2, operand1_8bit, operand2_8bit)
@@ -395,7 +396,7 @@ for instruction_data in control_ops:
     '''
     if mnemonic == 'JP':
         condition = 'NONE' if operand2 == None else operand1
-        lambda_function = '(CPU cpu) -> cpu.JR(Condition.{}, {})'.format(condition, 'a16()' if operand2 != None else -1)
+        lambda_function = '(CPU cpu) -> cpu.JP({}, Condition.{}, {})'.format("rf.HL" if operand1 == "HL" else "null", condition, 'a16()' if operand2 != None or operand1 == "a16" else -1)
         covered_control_ops.append(opcode)
     if mnemonic == 'JR':
         condition = 'NONE' if operand2 == None else operand1
@@ -456,16 +457,16 @@ for instruction_data in unprefixed_bit_ops:
     length = instruction_data['length']
 
     if mnemonic == 'RLCA':
-        lambda_function = '(CPU cpu) -> cpu.RLC(rf.A)'
+        lambda_function = '(CPU cpu) -> cpu.RLCA()'
         covered_unprefixed_bit_ops.append(opcode)
     if mnemonic == 'RRCA':
-        lambda_function = '(CPU cpu) -> cpu.RRC(rf.A)'
+        lambda_function = '(CPU cpu) -> cpu.RRCA()'
         covered_unprefixed_bit_ops.append(opcode)
     if mnemonic == 'RLA':
-        lambda_function = '(CPU cpu) -> cpu.RL(rf.A)'
+        lambda_function = '(CPU cpu) -> cpu.RLA()'
         covered_unprefixed_bit_ops.append(opcode)
     if mnemonic == 'RRA':
-        lambda_function = '(CPU cpu) -> cpu.RR(rf.A)'
+        lambda_function = '(CPU cpu) -> cpu.RRA()'
         covered_unprefixed_bit_ops.append(opcode)
 
     if opcode in covered_unprefixed_bit_ops:

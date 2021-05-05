@@ -1,7 +1,16 @@
+import java.io.BufferedWriter;
+import java.io.FileWriter;
+import java.io.IOException;
+import java.io.PrintWriter;
+
 public class CPU {
 
 //    boolean DEBUG = true;
+
+    static final int FREQUENCY = 4 * 1024 * 1024;
+
     boolean DEBUG = false;
+    boolean DEBUG_FILE = false;
 
     interface Lambda {
         int execute(CPU cpu);
@@ -16,7 +25,8 @@ public class CPU {
     // Register File
     RegisterFile rf;
 
-    boolean interrupt;
+    boolean interrupt_master_enable = false;
+    boolean next_interrupt_master_enable = false;
     boolean halt;
 
     final static int ZFLAG_BIT = RegisterFile.ZFLAG_BIT;
@@ -24,8 +34,13 @@ public class CPU {
     final static int HFLAG_BIT = RegisterFile.HFLAG_BIT;
     final static int CFLAG_BIT = RegisterFile.CFLAG_BIT;
 
+    PrintWriter out = new PrintWriter(new BufferedWriter(new FileWriter("cpu_instrs.out")));
+
     // Memory 
     MMU mmu;
+
+    // Timer
+    Timer2 timer;
 
     // HashMap<Integer, Instruction> opcodes = new HashMap<>();
 
@@ -58,9 +73,10 @@ public class CPU {
 
     Operation[] operations = new Operation[512];
 
-    public CPU(MMU mmu){
+    public CPU(MMU mmu, Timer2 timer) throws IOException {
         clk = new Clock();
         rf = new RegisterFile();
+        this.timer = timer;
         this.mmu = mmu;
 
         define_ops();
@@ -83,6 +99,13 @@ public class CPU {
         result_pc &= 0xFFFF;
         rf.PC.write(result_pc);
 
+        if(result_pc >= 0xff && !mmu.finished_bios) {
+            mmu.finished_bios = true;
+            System.out.println("finished BIOS");
+//            DEBUG = true;
+//            DEBUG_FILE = true;
+        }
+
 //        System.out.println(Integer.toString(current_pc, 16));
 //        System.out.println(Integer.toString(opcode, 16));
 
@@ -98,7 +121,29 @@ public class CPU {
 
         Operation op = operations[opcode];
 
-        op.execute(this);
+        interrupt_master_enable = next_interrupt_master_enable;
+//        try {
+            op.execute(this);
+//        }
+//        catch(Exception e) {
+//            System.err.println(e);
+//            System.err.println(rf.SP.read());
+//            System.err.println(Integer.toHexString(opcode));
+//            System.err.println(Integer.toHexString(current_pc));
+//            System.exit(1);
+//            out.close();
+//        }
+
+        timer.tick(m);
+
+        // Handle interrupts
+        if(interrupt_master_enable && (MMU.interrupt_enable.read() != 0) & (MMU.interrupt_flags.read() != 0)) {
+            int fired = MMU.interrupt_enable.read() & MMU.interrupt_flags.read();
+//            System.out.println("fired : " + Integer.toHexString(fired));
+            handleInterrupt(fired);
+        }
+
+//        timer.tick(m);
 
 //        try {
 //            op.execute(this);
@@ -112,8 +157,10 @@ public class CPU {
 
         if(DEBUG) {
             System.out.println(Integer.toString(current_pc, 16) + " : " + Integer.toString(opcode >= 0x100 ? opcode - 0x100 : opcode, 16) + " : " + op);
-
-            rf.dump();
+            if(DEBUG_FILE) out.println(Integer.toString(current_pc, 16) + " : " + Integer.toString(opcode >= 0x100 ? opcode - 0x100 : opcode, 16) + " : " + op);
+            if(DEBUG_FILE) out.println(rf.dump());
+            if(DEBUG_FILE) out.println(interrupt_master_enable + " " + Integer.toHexString(MMU.interrupt_enable.read()) + " " + Integer.toHexString(MMU.interrupt_flags.read()));
+            System.out.println(rf.dump());
         }
 
         clk.tick();
@@ -124,8 +171,9 @@ public class CPU {
     public int d8() {
         int pc = rf.PC.read();
         int data = mmu.readByte(pc);
+//        System.out.println("d8() " + Integer.toHexString(pc));
         pc += 1;
-        pc &= 0xFF;
+        pc &= 0xFFFF;
         rf.PC.write(pc);
         return data;
     }
@@ -151,11 +199,14 @@ public class CPU {
     }
 
     public int a8() {
-        return d8();
+        int value = d8();
+        return value;
     }
 
     public int a16() {
-        return d16();
+        int value = d16();
+//        System.out.println(Integer.toHexString(value));
+        return value;
     }
 
     public void dispatch(){
@@ -167,6 +218,52 @@ public class CPU {
             rf.PC.write((pc + 1) % 65356); // update PC
             
             clk.tick();
+        }
+    }
+
+    public void handleInterrupt(int fired) {
+        // Consider VBLANK interrupt
+        if((fired & 0x01) == 0x01) {
+            interrupt_master_enable = false;
+//            System.out.println("MMU.interrupt_flags.read()");
+//            System.out.println(Integer.toHexString(MMU.interrupt_flags.read()));
+            MMU.interrupt_flags.write(MMU.interrupt_flags.read() & ~0x01);
+//            System.out.println(Integer.toHexString(MMU.interrupt_flags.read()));
+            RST(0x40);
+
+            m = 4;
+            t = 16;
+        }
+        
+        // Consider Joypad Interrupt
+        if((fired & 0x10) == 0x10) {
+//            System.out.println("keypad interrupt");
+            interrupt_master_enable = false;
+            MMU.interrupt_flags.write(MMU.interrupt_flags.read() & ~0x10);
+            RST(0x60);
+
+            m = 4;
+            t = 16;
+        }
+
+        if((fired & 0x04) == 0x04) {
+//            System.out.println("timer interrupt");
+            interrupt_master_enable = false;
+            MMU.interrupt_flags.write(MMU.interrupt_flags.read() & ~0x04);
+            RST(0x50);
+
+            m = 4;
+            t = 16;
+        }
+
+        if((fired & 0x02) == 0x02) {
+//            System.out.println("stat interrupt");
+            interrupt_master_enable = false;
+            MMU.interrupt_flags.write(MMU.interrupt_flags.read() & ~0x02);
+            RST(0x48);
+
+            m = 4;
+            t = 16;
         }
     }
 
@@ -238,18 +335,16 @@ public class CPU {
         }
         data &= 0xFF;
         int original = r1.read();
-        int result = original + data + (carry ? rf.getFlag(CFLAG_BIT) : 0);
+        int carry_data = (carry ? rf.getFlag(CFLAG_BIT) : 0);
+        int result = original + data + carry_data;
 
-        result &= 0xFF; // mask the result
 
-        if(DEBUG) System.out.println("ADD: " + data);
-        if(DEBUG) System.out.println("ADD: " + result);
-
-        rf.setFlag(ZFLAG_BIT, result == 0);
+        rf.setFlag(ZFLAG_BIT, (result & 0xFF) == 0);
         rf.setFlag(CFLAG_BIT, result > 255);
         rf.setFlag(NFLAG_BIT, false);
-        rf.setFlag(HFLAG_BIT, (original & 0xF) + (data & 0xF) > 0xF);
+        rf.setFlag(HFLAG_BIT, (original & 0xF) + (data & 0xF) + carry_data > 0xF);
 
+        result &= 0xFF; // mask the result
 
         r1.write(result);
 
@@ -280,15 +375,16 @@ public class CPU {
 //        if(DEBUG) System.out.println("SUB " + Integer.toHexString(data));
 
         int original = r1.read();
-        int result = (original - data) - (carry ? rf.getFlag(CFLAG_BIT) : 0);
+        int carry_data = (carry ? rf.getFlag(CFLAG_BIT) : 0);
+        int result = (original - data) - carry_data;
 
         // set flags
-        rf.setFlag(ZFLAG_BIT, result == 0);
+        rf.setFlag(ZFLAG_BIT, (result & 0xFF) == 0);
         rf.setFlag(NFLAG_BIT, true);
-        rf.setFlag(HFLAG_BIT, (original & 0x0F) < (data & 0x0F)); // TODO: Check
+        rf.setFlag(HFLAG_BIT, (original & 0x0F) - (data & 0x0F) - carry_data < 0); // TODO: Check
         rf.setFlag(CFLAG_BIT, result < 0); // TODO: Check
         
-        result %= 256;
+        result &= 0xFF;
         if(write){
             r1.write(result);
         }
@@ -399,7 +495,7 @@ public class CPU {
 
         result &= 0xFFFF; // mask to 16-bit
 
-        r2.write(result);
+        r1.write(result);
 
         return result;
     }
@@ -425,18 +521,17 @@ public class CPU {
         //     rf.setFlag(HFLAG_BIT, (original & 0xFFF) + (data & 0xFFF) > 0x0FFF);
         // }
 
-        int data = immediate_value;
+        int data = immediate_value; // r8()
+
+        if(data < 0) {
+            data = (65536 + data) & 0xFFFF;
+        }
+
         int result = original + data;
         result &= 0xFFFF; // mask to 16-bit
 
-        if(data < 0) {
-            rf.setFlag(CFLAG_BIT, result < 0);
-            rf.setFlag(HFLAG_BIT, (original & 0xFFF) < (data & 0xFFF));
-        }
-        else {
-            rf.setFlag(CFLAG_BIT, result > 0xFFFF);
-            rf.setFlag(HFLAG_BIT, (original & 0xFFF) + (data & 0xFFF) > 0x0FFF);   
-        }
+        rf.setFlag(CFLAG_BIT, (original & 0xFF) + (data & 0xFF) > 0xFF);
+        rf.setFlag(HFLAG_BIT, (original & 0x0F) + (data & 0x0F) > 0x0F);
         
         rf.SP.write(result);
 
@@ -551,6 +646,9 @@ public class CPU {
             else {
                 // special case for 0xE0: LD ($FF00+n), A
                 if(operand1_8bit) {
+                    // 	LD ($FF00+$50),A	; $00fe	;turn off DMG rom
+//                    System.out.println("loading $FF00+" + Integer.toHexString(immediate_value1));
+//                    System.out.println("PC : " + Integer.toHexString(rf.PC.read()));
                     address = immediate_value1 + 0xFF00;
                 }
                 else {
@@ -567,6 +665,7 @@ public class CPU {
             }
             // int address = (r1 instanceof Register16Bit) ? r1.read() : immediate_value1;
             // result = (r2 == null) ? immediate_value2 : r2.read();
+//            System.out.println(Integer.toHexString(address));
             mmu.writeByte(address, result);
         }
 
@@ -583,20 +682,21 @@ public class CPU {
             // Handles  LDHL SP,n   LD BC,nn    
             if(r2 == null) {
                 // LD HL, SP+n
-                if(operand2_8bit){
-                    result = rf.SP.read() + immediate_value2;
-                    /*int original = rf.SP.read();
-                    int data = 0;
-                    // negative
-                    if(immediate_value2 > 127) {
-                        data = -((~immediate_value2+1)&0xFF);
-                        result = original + data;
+                if(operand2_8bit) {
+                    int original = rf.SP.read();
+                    int data = immediate_value2;
+
+                    if(data < 0){
+                        data = (65536 + data) & 0xFFFF;
                     }
-                    else{ // positive
-                        data = immediate_value;
-                        result = original + data;
-                    }*/
-                    // TODO: immediate_value2 is a signed value -> done
+                    
+                    result = original + data;
+                    result &= 0xFFFF;
+
+                    rf.setFlag(ZFLAG_BIT, false);
+                    rf.setFlag(NFLAG_BIT, false);
+                    rf.setFlag(CFLAG_BIT, (original & 0xFF) + (data & 0xFF) > 0xFF);
+                    rf.setFlag(HFLAG_BIT, (original & 0x0F) + (data & 0x0F) > 0x0F);
                 }
                 else{ // ex. LD BC,nn
                     result = immediate_value2;
@@ -634,6 +734,9 @@ public class CPU {
         // TODO: check if data is written before/after SP is decremented
         int data = mmu.readWord(rf.SP.read());
 
+        if(r == rf.AF) {
+            data &= 0xFFF0;
+        }
         r.write(data);
                 
         int original = rf.SP.read();
@@ -664,7 +767,12 @@ public class CPU {
         rf.setFlag(NFLAG_BIT, false);
         rf.setFlag(HFLAG_BIT, false);
 
-        r.write(result);
+        if(r == rf.HL) {
+            mmu.writeByte(r.read(), result);
+        }
+        else {
+            r.write(result);
+        }
 
         return result;
     }
@@ -710,9 +818,12 @@ public class CPU {
     public int CPL() {
         int data = rf.A.read();
 
-        int result = ~data;
+        int result = ~data & 0xFF;
 
         rf.A.write(result);
+
+        rf.setFlag(RegisterFile.HFLAG_BIT, true);
+        rf.setFlag(RegisterFile.NFLAG_BIT, true);
 
         return result;
     }
@@ -720,11 +831,16 @@ public class CPU {
     public int CCF() {
         int data = rf.getFlag(CFLAG_BIT);
         rf.setFlag(CFLAG_BIT, !rf.isFlagSet(CFLAG_BIT));
+        rf.setFlag(NFLAG_BIT, false);
+        rf.setFlag(HFLAG_BIT, false);
         return ~data;
     }
 
     public int SCF() {
         rf.setFlag(CFLAG_BIT, true);
+        rf.setFlag(NFLAG_BIT, false);
+        rf.setFlag(HFLAG_BIT, false);
+
         return 1;
     }
 
@@ -734,7 +850,7 @@ public class CPU {
     }
 
     public int HALT() {
-        halt = true;
+        // if()
         return 0;
     }
 
@@ -745,12 +861,15 @@ public class CPU {
     }
 
     public int DI() {
-        interrupt = false;
+        interrupt_master_enable = false;
+        next_interrupt_master_enable = false;
+//        System.out.println("DI");
         return 0;
     }
 
     public int EI() {
-        interrupt = true;
+        next_interrupt_master_enable = true;
+//        System.out.println("EI");
         return 1;
     }
 
@@ -780,6 +899,12 @@ public class CPU {
         return result;
     }
 
+    public int RLCA() {
+        int data = RLC(rf.A);
+        rf.setFlag(ZFLAG_BIT, false);
+        return data;
+    }
+
     // Rotate left through carry flag
     public int RL(Register r) {
         int data = r == rf.HL ? mmu.readByte(r.read()) : r.read();
@@ -807,6 +932,12 @@ public class CPU {
         return result;
     }
 
+    public int RLA() {
+        int data = RL(rf.A);
+        rf.setFlag(RegisterFile.ZFLAG_BIT, false);
+        return data;
+    }
+
     public int RRC(Register r) {
         int data = r == rf.HL ? mmu.readByte(r.read()) : r.read();
         rf.setFlag(CFLAG_BIT, (data & 0x01) == 1); // old bit 0 to carry flag
@@ -830,6 +961,12 @@ public class CPU {
         return result;
     }
 
+    public int RRCA() {
+        int data = RRC(rf.A);
+        rf.setFlag(RegisterFile.ZFLAG_BIT, false);
+        return data;
+    }
+
     public int RR(Register r) {
         int data = r == rf.HL ? mmu.readByte(r.read()) : r.read();
         int carry = rf.getFlag(CFLAG_BIT);
@@ -848,6 +985,12 @@ public class CPU {
         }
 
         return result;
+    }
+
+    public int RRA(){
+        int data = RR(rf.A);
+        rf.setFlag(RegisterFile.ZFLAG_BIT, false);
+        return data;
     }
 
     public int SLA(Register r) {
@@ -922,7 +1065,7 @@ public class CPU {
             data = r.read();
         }
 
-        int result = data & (0x01 << (bit + 1));
+        int result = data & (0x01 << (bit));
 
         rf.setFlag(ZFLAG_BIT, result == 0);
         rf.setFlag(NFLAG_BIT, false);
@@ -979,9 +1122,11 @@ public class CPU {
         NONE
     }
 
-    public int JP(Register r1, int immediate_value, Condition c){
+    public int JP(Register r1, Condition c, int immediate_value){
         int location = 0;
         boolean jump = false;
+
+        if(DEBUG_FILE) out.println(c.toString());
 
         if(r1 == null){ // JP nn or JP cc, nn
             switch(c){
@@ -1013,6 +1158,9 @@ public class CPU {
         if(jump){
             rf.PC.write(location);
         }
+
+//        if(DEBUG)
+//            System.out.println("location JP : " + location);
 
         return location;
     }
@@ -1088,10 +1236,10 @@ public class CPU {
 
             // TODO: check if data is written before/after SP is decremented
             mmu.writeWord(rf.SP.read(), rf.PC.read());
-
+            if(DEBUG && DEBUG_FILE) out.println("CALL WRITTEN at " + Integer.toHexString(rf.SP.read()) + " : " + Integer.toHexString(rf.PC.read()));
 //            System.out.println("mmu.writeWord() " + Integer.toHexString(rf.SP.read()) + " " + Integer.toHexString(rf.PC.read()));
 
-            JP(null, immediate_value, Condition.NONE);
+            JP(null, Condition.NONE, immediate_value);
 
             return immediate_value;
         }
@@ -1104,6 +1252,9 @@ public class CPU {
         return CALL(Condition.NONE, immediate_value);
     }
 
+    // https://azug.minpet.unibas.ch//~lukas/GBprojects/gbFAQ.html
+    // What is the difference between assembly commands RET & RETI ?
+    //RET is just a return from subroutine. RETI is two commands in one. RETI is EI / RET in that order. The command EI doesn't take effect immediately but DI does. EI takes effect following the instruction that follows it.
     public int RET(Condition c, boolean interrupt_enabled) {
         boolean satisfied = c == Condition.NONE ||
                             c == Condition.NZ && !rf.isFlagSet(ZFLAG_BIT) ||
@@ -1120,9 +1271,15 @@ public class CPU {
 //            System.out.println("original " + Integer.toHexString(original));
 //            System.out.println("address " + Integer.toHexString(address));
 //            System.out.println("result " + Integer.toHexString(result));
+            if(DEBUG && DEBUG_FILE) {
+                out.println("original SP: " + Integer.toHexString(original));
+                out.println("address: " + address);
+            }
             rf.SP.write(result);
             rf.PC.write(address);
-            interrupt = interrupt_enabled;
+            if(interrupt_enabled) {
+                next_interrupt_master_enable = true;
+            }
         }
 
         return address;
@@ -1136,7 +1293,7 @@ public class CPU {
         operations[0x04] = new Operation("INC B", (CPU cpu) -> cpu.INC_8(rf.B), new char[] {'Z', '0', 'H', '-'}, 1, new int[] {4,0});
         operations[0x05] = new Operation("DEC B", (CPU cpu) -> cpu.DEC_8(rf.B), new char[] {'Z', '1', 'H', '-'}, 1, new int[] {4,0});
         operations[0x06] = new Operation("LD B d8", (CPU cpu) -> cpu.LD_8(rf.B, null, -1, d8(), false, false, false, true, false, false), new char[] {'-', '-', '-', '-'}, 2, new int[] {8,0});
-        operations[0x07] = new Operation("RLCA", (CPU cpu) -> cpu.RLC(rf.A), new char[] {'0', '0', '0', 'C'}, 1, new int[] {4,0});
+        operations[0x07] = new Operation("RLCA", (CPU cpu) -> cpu.RLCA(), new char[] {'0', '0', '0', 'C'}, 1, new int[] {4,0});
         operations[0x08] = new Operation("LD (a16) SP", (CPU cpu) -> cpu.LD_16(null, rf.SP, a16(), -1, false, false), new char[] {'-', '-', '-', '-'}, 3, new int[] {20,0});
         operations[0x09] = new Operation("ADD HL BC", (CPU cpu) -> cpu.ADD_16(rf.HL, rf.BC), new char[] {'-', '0', 'H', 'C'}, 1, new int[] {8,0});
         operations[0x0a] = new Operation("LD A (BC)", (CPU cpu) -> cpu.LD_8(rf.A, rf.BC, -1, -1, false, true, false, false, false, false), new char[] {'-', '-', '-', '-'}, 1, new int[] {8,0});
@@ -1144,7 +1301,7 @@ public class CPU {
         operations[0x0c] = new Operation("INC C", (CPU cpu) -> cpu.INC_8(rf.C), new char[] {'Z', '0', 'H', '-'}, 1, new int[] {4,0});
         operations[0x0d] = new Operation("DEC C", (CPU cpu) -> cpu.DEC_8(rf.C), new char[] {'Z', '1', 'H', '-'}, 1, new int[] {4,0});
         operations[0x0e] = new Operation("LD C d8", (CPU cpu) -> cpu.LD_8(rf.C, null, -1, d8(), false, false, false, true, false, false), new char[] {'-', '-', '-', '-'}, 2, new int[] {8,0});
-        operations[0x0f] = new Operation("RRCA", (CPU cpu) -> cpu.RRC(rf.A), new char[] {'0', '0', '0', 'C'}, 1, new int[] {4,0});
+        operations[0x0f] = new Operation("RRCA", (CPU cpu) -> cpu.RRCA(), new char[] {'0', '0', '0', 'C'}, 1, new int[] {4,0});
         operations[0x10] = new Operation("STOP 0", (CPU cpu) -> cpu.STOP(), new char[] {'-', '-', '-', '-'}, 1, new int[] {4,0});
         operations[0x11] = new Operation("LD DE d16", (CPU cpu) -> cpu.LD_16(rf.DE, null, -1, d16(), false, false), new char[] {'-', '-', '-', '-'}, 3, new int[] {12,0});
         operations[0x12] = new Operation("LD (DE) A", (CPU cpu) -> cpu.LD_8(rf.DE, rf.A, -1, -1, true, false, false, false, false, false), new char[] {'-', '-', '-', '-'}, 1, new int[] {8,0});
@@ -1152,7 +1309,7 @@ public class CPU {
         operations[0x14] = new Operation("INC D", (CPU cpu) -> cpu.INC_8(rf.D), new char[] {'Z', '0', 'H', '-'}, 1, new int[] {4,0});
         operations[0x15] = new Operation("DEC D", (CPU cpu) -> cpu.DEC_8(rf.D), new char[] {'Z', '1', 'H', '-'}, 1, new int[] {4,0});
         operations[0x16] = new Operation("LD D d8", (CPU cpu) -> cpu.LD_8(rf.D, null, -1, d8(), false, false, false, true, false, false), new char[] {'-', '-', '-', '-'}, 2, new int[] {8,0});
-        operations[0x17] = new Operation("RLA", (CPU cpu) -> cpu.RL(rf.A), new char[] {'0', '0', '0', 'C'}, 1, new int[] {4,0});
+        operations[0x17] = new Operation("RLA", (CPU cpu) -> cpu.RLA(), new char[] {'0', '0', '0', 'C'}, 1, new int[] {4,0});
         operations[0x18] = new Operation("JR r8", (CPU cpu) -> cpu.JR(Condition.NONE, r8()), new char[] {'-', '-', '-', '-'}, 2, new int[] {12,0});
         operations[0x19] = new Operation("ADD HL DE", (CPU cpu) -> cpu.ADD_16(rf.HL, rf.DE), new char[] {'-', '0', 'H', 'C'}, 1, new int[] {8,0});
         operations[0x1a] = new Operation("LD A (DE)", (CPU cpu) -> cpu.LD_8(rf.A, rf.DE, -1, -1, false, true, false, false, false, false), new char[] {'-', '-', '-', '-'}, 1, new int[] {8,0});
@@ -1160,7 +1317,7 @@ public class CPU {
         operations[0x1c] = new Operation("INC E", (CPU cpu) -> cpu.INC_8(rf.E), new char[] {'Z', '0', 'H', '-'}, 1, new int[] {4,0});
         operations[0x1d] = new Operation("DEC E", (CPU cpu) -> cpu.DEC_8(rf.E), new char[] {'Z', '1', 'H', '-'}, 1, new int[] {4,0});
         operations[0x1e] = new Operation("LD E d8", (CPU cpu) -> cpu.LD_8(rf.E, null, -1, d8(), false, false, false, true, false, false), new char[] {'-', '-', '-', '-'}, 2, new int[] {8,0});
-        operations[0x1f] = new Operation("RRA", (CPU cpu) -> cpu.RR(rf.A), new char[] {'0', '0', '0', 'C'}, 1, new int[] {4,0});
+        operations[0x1f] = new Operation("RRA", (CPU cpu) -> cpu.RRA(), new char[] {'0', '0', '0', 'C'}, 1, new int[] {4,0});
         operations[0x20] = new Operation("JR NZ r8", (CPU cpu) -> cpu.JR(Condition.NZ, r8()), new char[] {'-', '-', '-', '-'}, 2, new int[] {12,8});
         operations[0x21] = new Operation("LD HL d16", (CPU cpu) -> cpu.LD_16(rf.HL, null, -1, d16(), false, false), new char[] {'-', '-', '-', '-'}, 3, new int[] {12,0});
         operations[0x22] = new Operation("LD (HL+) A", (CPU cpu) -> cpu.LD_8(rf.HL, rf.A, -1, -1, true, false, false, false, true, false), new char[] {'-', '-', '-', '-'}, 1, new int[] {8,0});
@@ -1323,51 +1480,51 @@ public class CPU {
         operations[0xbf] = new Operation("CP A", (CPU cpu) -> cpu.CP(rf.A, rf.A, 0), new char[] {'Z', '1', 'H', 'C'}, 1, new int[] {4,0});
         operations[0xc0] = new Operation("RET NZ", (CPU cpu) -> cpu.RET(Condition.NZ, false), new char[] {'-', '-', '-', '-'}, 1, new int[] {20,8});
         operations[0xc1] = new Operation("POP BC", (CPU cpu) -> cpu.POP(rf.BC), new char[] {'-', '-', '-', '-'}, 1, new int[] {12,0});
-        operations[0xc2] = new Operation("JP NZ a16", (CPU cpu) -> cpu.JR(Condition.NZ, a16()), new char[] {'-', '-', '-', '-'}, 3, new int[] {16,12});
-        operations[0xc3] = new Operation("JP a16", (CPU cpu) -> cpu.JR(Condition.NONE, -1), new char[] {'-', '-', '-', '-'}, 3, new int[] {16,0});
+        operations[0xc2] = new Operation("JP NZ a16", (CPU cpu) -> cpu.JP(null, Condition.NZ, a16()), new char[] {'-', '-', '-', '-'}, 3, new int[] {16,12});
+        operations[0xc3] = new Operation("JP a16", (CPU cpu) -> cpu.JP(null, Condition.NONE, a16()), new char[] {'-', '-', '-', '-'}, 3, new int[] {16,0});
         operations[0xc4] = new Operation("CALL NZ a16", (CPU cpu) -> cpu.CALL(Condition.NZ, a16()), new char[] {'-', '-', '-', '-'}, 3, new int[] {24,12});
         operations[0xc5] = new Operation("PUSH BC", (CPU cpu) -> cpu.PUSH(rf.BC), new char[] {'-', '-', '-', '-'}, 1, new int[] {16,0});
         operations[0xc6] = new Operation("ADD A d8", (CPU cpu) -> cpu.ADD_8(rf.A, null, d8(), false), new char[] {'Z', '0', 'H', 'C'}, 2, new int[] {8,0});
         operations[0xc7] = new Operation("RST 00H", (CPU cpu) -> cpu.RST(0x00), new char[] {'-', '-', '-', '-'}, 1, new int[] {16,0});
         operations[0xc8] = new Operation("RET Z", (CPU cpu) -> cpu.RET(Condition.Z, false), new char[] {'-', '-', '-', '-'}, 1, new int[] {20,8});
         operations[0xc9] = new Operation("RET", (CPU cpu) -> cpu.RET(Condition.NONE, false), new char[] {'-', '-', '-', '-'}, 1, new int[] {16,0});
-        operations[0xca] = new Operation("JP Z a16", (CPU cpu) -> cpu.JR(Condition.Z, a16()), new char[] {'-', '-', '-', '-'}, 3, new int[] {16,12});
+        operations[0xca] = new Operation("JP Z a16", (CPU cpu) -> cpu.JP(null, Condition.Z, a16()), new char[] {'-', '-', '-', '-'}, 3, new int[] {16,12});
         operations[0xcc] = new Operation("CALL Z a16", (CPU cpu) -> cpu.CALL(Condition.Z, a16()), new char[] {'-', '-', '-', '-'}, 3, new int[] {24,12});
         operations[0xcd] = new Operation("CALL a16", (CPU cpu) -> cpu.CALL(Condition.NONE, a16()), new char[] {'-', '-', '-', '-'}, 3, new int[] {24,0});
         operations[0xce] = new Operation("ADC A d8", (CPU cpu) -> cpu.ADC(rf.A, null, d8()), new char[] {'Z', '0', 'H', 'C'}, 2, new int[] {8,0});
         operations[0xcf] = new Operation("RST 08H", (CPU cpu) -> cpu.RST(0x08), new char[] {'-', '-', '-', '-'}, 1, new int[] {16,0});
         operations[0xd0] = new Operation("RET NC", (CPU cpu) -> cpu.RET(Condition.NC, false), new char[] {'-', '-', '-', '-'}, 1, new int[] {20,8});
         operations[0xd1] = new Operation("POP DE", (CPU cpu) -> cpu.POP(rf.DE), new char[] {'-', '-', '-', '-'}, 1, new int[] {12,0});
-        operations[0xd2] = new Operation("JP NC a16", (CPU cpu) -> cpu.JR(Condition.NC, a16()), new char[] {'-', '-', '-', '-'}, 3, new int[] {16,12});
+        operations[0xd2] = new Operation("JP NC a16", (CPU cpu) -> cpu.JP(null, Condition.NC, a16()), new char[] {'-', '-', '-', '-'}, 3, new int[] {16,12});
         operations[0xd4] = new Operation("CALL NC a16", (CPU cpu) -> cpu.CALL(Condition.NC, a16()), new char[] {'-', '-', '-', '-'}, 3, new int[] {24,12});
         operations[0xd5] = new Operation("PUSH DE", (CPU cpu) -> cpu.PUSH(rf.DE), new char[] {'-', '-', '-', '-'}, 1, new int[] {16,0});
         operations[0xd6] = new Operation("SUB d8", (CPU cpu) -> cpu.SUB(rf.A, null, d8(), false, true), new char[] {'Z', '1', 'H', 'C'}, 2, new int[] {8,0});
         operations[0xd7] = new Operation("RST 10H", (CPU cpu) -> cpu.RST(0x10), new char[] {'-', '-', '-', '-'}, 1, new int[] {16,0});
         operations[0xd8] = new Operation("RET C", (CPU cpu) -> cpu.RET(Condition.C, false), new char[] {'-', '-', '-', '-'}, 1, new int[] {20,8});
         operations[0xd9] = new Operation("RETI", (CPU cpu) -> cpu.RET(Condition.NONE, true), new char[] {'-', '-', '-', '-'}, 1, new int[] {16,0});
-        operations[0xda] = new Operation("JP C a16", (CPU cpu) -> cpu.JR(Condition.C, a16()), new char[] {'-', '-', '-', '-'}, 3, new int[] {16,12});
+        operations[0xda] = new Operation("JP C a16", (CPU cpu) -> cpu.JP(null, Condition.C, a16()), new char[] {'-', '-', '-', '-'}, 3, new int[] {16,12});
         operations[0xdc] = new Operation("CALL C a16", (CPU cpu) -> cpu.CALL(Condition.C, a16()), new char[] {'-', '-', '-', '-'}, 3, new int[] {24,12});
         operations[0xde] = new Operation("SBC A d8", (CPU cpu) -> cpu.SBC(rf.A, null, d8()), new char[] {'Z', '1', 'H', 'C'}, 2, new int[] {8,0});
         operations[0xdf] = new Operation("RST 18H", (CPU cpu) -> cpu.RST(0x18), new char[] {'-', '-', '-', '-'}, 1, new int[] {16,0});
-        operations[0xe0] = new Operation("LDH (a8) A", (CPU cpu) -> cpu.LD_8(null, rf.A, a8(), -1, true, false, true, false, true, false), new char[] {'-', '-', '-', '-'}, 2, new int[] {12,0});
+        operations[0xe0] = new Operation("LDH (a8) A", (CPU cpu) -> cpu.LD_8(null, rf.A, a8(), -1, true, false, true, false, false, false), new char[] {'-', '-', '-', '-'}, 2, new int[] {12,0});
         operations[0xe1] = new Operation("POP HL", (CPU cpu) -> cpu.POP(rf.HL), new char[] {'-', '-', '-', '-'}, 1, new int[] {12,0});
         operations[0xe2] = new Operation("LD (C) A", (CPU cpu) -> cpu.LD_8(rf.C, rf.A, -1, -1, true, false, false, false, false, false), new char[] {'-', '-', '-', '-'}, 1, new int[] {8,0});
         operations[0xe5] = new Operation("PUSH HL", (CPU cpu) -> cpu.PUSH(rf.HL), new char[] {'-', '-', '-', '-'}, 1, new int[] {16,0});
         operations[0xe6] = new Operation("AND d8", (CPU cpu) -> cpu.AND(rf.A, null, d8()), new char[] {'Z', '0', '1', '0'}, 2, new int[] {8,0});
         operations[0xe7] = new Operation("RST 20H", (CPU cpu) -> cpu.RST(0x20), new char[] {'-', '-', '-', '-'}, 1, new int[] {16,0});
         operations[0xe8] = new Operation("ADD SP r8", (CPU cpu) -> cpu.ADD_SP(r8()), new char[] {'0', '0', 'H', 'C'}, 2, new int[] {16,0});
-        operations[0xe9] = new Operation("JP (HL)", (CPU cpu) -> cpu.JR(Condition.NONE, -1), new char[] {'-', '-', '-', '-'}, 1, new int[] {4,0});
+        operations[0xe9] = new Operation("JP (HL)", (CPU cpu) -> cpu.JP(rf.HL, Condition.NONE, -1), new char[] {'-', '-', '-', '-'}, 1, new int[] {4,0});
         operations[0xea] = new Operation("LD (a16) A", (CPU cpu) -> cpu.LD_8(null, rf.A, a16(), -1, true, false, false, false, false, false), new char[] {'-', '-', '-', '-'}, 3, new int[] {16,0});
         operations[0xee] = new Operation("XOR d8", (CPU cpu) -> cpu.XOR(rf.A, null, d8()), new char[] {'Z', '0', '0', '0'}, 2, new int[] {8,0});
         operations[0xef] = new Operation("RST 28H", (CPU cpu) -> cpu.RST(0x28), new char[] {'-', '-', '-', '-'}, 1, new int[] {16,0});
-        operations[0xf0] = new Operation("LDH A (a8)", (CPU cpu) -> cpu.LD_8(rf.A, null, -1, a8(), false, true, false, true, true, false), new char[] {'-', '-', '-', '-'}, 2, new int[] {12,0});
+        operations[0xf0] = new Operation("LDH A (a8)", (CPU cpu) -> cpu.LD_8(rf.A, null, -1, a8(), false, true, false, true, false, false), new char[] {'-', '-', '-', '-'}, 2, new int[] {12,0});
         operations[0xf1] = new Operation("POP AF", (CPU cpu) -> cpu.POP(rf.AF), new char[] {'Z', 'N', 'H', 'C'}, 1, new int[] {12,0});
         operations[0xf2] = new Operation("LD A (C)", (CPU cpu) -> cpu.LD_8(rf.A, rf.C, -1, -1, false, true, false, false, false, false), new char[] {'-', '-', '-', '-'}, 1, new int[] {8,0});
         operations[0xf3] = new Operation("DI", (CPU cpu) -> cpu.DI(), new char[] {'-', '-', '-', '-'}, 1, new int[] {4,0});
         operations[0xf5] = new Operation("PUSH AF", (CPU cpu) -> cpu.PUSH(rf.AF), new char[] {'-', '-', '-', '-'}, 1, new int[] {16,0});
         operations[0xf6] = new Operation("OR d8", (CPU cpu) -> cpu.OR(rf.A, null, d8()), new char[] {'Z', '0', '0', '0'}, 2, new int[] {8,0});
         operations[0xf7] = new Operation("RST 30H", (CPU cpu) -> cpu.RST(0x30), new char[] {'-', '-', '-', '-'}, 1, new int[] {16,0});
-        operations[0xf8] = new Operation("LD HL SP+r8", (CPU cpu) -> cpu.LD_16(rf.HL, null, -1, -1, false, true), new char[] {'0', '0', 'H', 'C'}, 2, new int[] {12,0});
+        operations[0xf8] = new Operation("LD HL SP+r8", (CPU cpu) -> cpu.LD_16(rf.HL, null, -1, r8(), false, true), new char[] {'0', '0', 'H', 'C'}, 2, new int[] {12,0});
         operations[0xf9] = new Operation("LD SP HL", (CPU cpu) -> cpu.LD_16(rf.SP, rf.HL, -1, -1, false, false), new char[] {'-', '-', '-', '-'}, 1, new int[] {8,0});
         operations[0xfa] = new Operation("LD A (a16)", (CPU cpu) -> cpu.LD_8(rf.A, null, -1, a16(), false, true, false, false, false, false), new char[] {'-', '-', '-', '-'}, 3, new int[] {16,0});
         operations[0xfb] = new Operation("EI", (CPU cpu) -> cpu.EI(), new char[] {'-', '-', '-', '-'}, 1, new int[] {4,0});
