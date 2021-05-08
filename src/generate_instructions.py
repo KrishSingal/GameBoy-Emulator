@@ -1,4 +1,7 @@
 # https://github.com/lmmendes/game-boy-opcodes
+'''
+Python Script to generate operation mapping in Java
+'''
 
 import json
 import re

@@ -190,9 +190,9 @@ public class MMU {
             case 6: ROM_size = 64 * 0x8000; break;
             case 7: ROM_size = 128 * 0x8000; break;
             case 8: ROM_size = 256 * 0x8000; break;
-            case 52: ROM_size = 72 * 0x4000; break;
-            case 53: ROM_size = 80 * 0x4000; break;
-            case 54: ROM_size = 96 * 0x4000; break;
+            case 0x52: ROM_size = 72 * 0x4000; break;
+            case 0x53: ROM_size = 80 * 0x4000; break;
+            case 0x54: ROM_size = 96 * 0x4000; break;
         }
 
         switch(ROMInput[0x0149]){

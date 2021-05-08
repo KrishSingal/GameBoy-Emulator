@@ -27,7 +27,7 @@ public class TestROMTesting {
 //        GameBoy gb = new GameBoy(cpu, gpu);
 
         GameBoy gb = new GameBoy();
-        gb.loadROM("roms/02-interrupts.gb");
+        gb.loadROM("roms/cpu_instrs.gb");
 
 //        cpu.DEBUG = true;
 

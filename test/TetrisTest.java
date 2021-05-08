@@ -13,7 +13,7 @@ public class TetrisTest {
 
         GameBoy gb = new GameBoy();
 
-        gb.loadROM("roms/Pocket Love (J) [S].gb");
+        gb.loadROM("roms/Super Mario Land (World).gb");
 
         while(gb.readPC() != 0x100) {
             gb.step();

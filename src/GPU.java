@@ -318,6 +318,15 @@ public class GPU {
                     }
                 }
                 return;
+
+            case 0xA:
+                WY.write(value);
+                return;
+
+            case 0xB:
+                WX.write(value);
+                return;
+
         }
     }
 
@@ -327,14 +336,6 @@ public class GPU {
 //        System.out.println(line);
         switch (gaddr) {
             case 0:
-                int value = (bg_on ? 0x01 : 0x00) |
-                        (sprite_on ? 0x02 : 0x00) |
-                        (sprite_size == 0x1 ? 0x04 : 0x00) |
-                        (background_map_base == 0x1C00 ? 0x08 : 0x00) |
-                        (background_tile_base == 0x0000 ? 0x10 : 0x00 ) |
-                        (window_on ? 0x20 : 0x00) |
-                        (window_mapbase == 0x1C00 ? 0x40 : 0x00) |
-                        (lcd_on ? 0x80 : 0x00);
 //                System.out.println(Integer.toHexString(regs[gaddr]));
                 return regs[gaddr];
             case 2:
@@ -350,6 +351,10 @@ public class GPU {
                 return STAT.read() | 0x80 | mode.ordinal() | (line == regs[0x05] ? 0x04 : 0);
             case 5: // LYC
                 return regs[0x05];
+            case 0xA:
+                return WY.read();
+            case 0xB:
+                return WX.read();
             default:
                 return regs[gaddr];
         }
@@ -458,6 +463,51 @@ public class GPU {
             }
         }
 
+        if(window_on && line >= WY.read() && line <= WY.read() + 256){
+//            System.out.println("Rendering window at line " + line + ". WY is " + WY.read() + ". WX is " + WX.read());
+            int window_map_offset = window_mapbase + ((((line + SCY.read() - WY.read()) & 255) >> 3) << 5);
+
+            int line_offset = WX.read() >= 7 ? (WX.read() - 7 + SCX.read()) >> 3:
+                                                SCX.read() >> 3;
+
+            int y = (line + SCY.read()) & 7;
+
+            int x = WX.read() >= 7 ? (WX.read() - 7 + SCX.read()) & 7:
+                                        SCX.read() & 7;
+
+            int tile = VRAM[window_map_offset + line_offset];
+
+//            System.out.println("VRAM  address" + Integer.toHexString(window_map_offset + line_offset));
+//            System.out.println("tile: " + tile);
+
+            if (background_tile_base == 0x0800 && tile < 128) {
+                tile += 256;
+            }
+
+            int canvas_offset = (line) * 160 + (WX.read() >= 7 ? WX.read() - 7 : 0);
+
+            for (int i = (WX.read() >= 7 ? WX.read() - 7 : 0); i < 160; i++) {
+                int color = palette[tileset[tile][y][x]];
+
+                game.scanline(canvas_offset, color);
+
+                cache[i] = tileset[tile][y][x];
+
+                canvas_offset++;
+
+                x++;
+                if (x == 8) {
+                    x = 0;
+                    line_offset = (line_offset + 1) & 31;
+                    tile = VRAM[window_map_offset + line_offset];
+                    if (background_tile_base == 0x0800 && tile < 128) {
+                        tile += 256;
+                    }
+                }
+            }
+
+        }
+
         if(sprite_on){
 
             if(sprite_size == 1) {
@@ -485,8 +535,8 @@ public class GPU {
                         }
 
                         for(int x=0; x< 8; x++){
-                            if(inRange(curr.x+x) && tilerow[curr.xflip ? (7-x) : x] > 0 && (curr.priority || cache[curr.x + x] != 3)){
-
+                            //if(inRange(curr.x+x) && tilerow[curr.xflip ? (7-x) : x] > 0 && (curr.priority || cache[curr.x + x] != 3)){
+                            if(inRange(curr.x+x) && tilerow[curr.xflip ? (7-x) : x] > 0 ){
                                 color = curr.palette[tilerow[curr.xflip ? (7-x) : x]];
                                 // System.out.println("Object " + curr.index + )
 

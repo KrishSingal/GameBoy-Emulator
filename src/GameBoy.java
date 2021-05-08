@@ -7,7 +7,8 @@ public class GameBoy {
     GPU gpu;
     APU apu;
     Timer2 timer;
-    
+    final static int TICKS_PER_SEC = 4194304;
+
     public GameBoy() throws IOException {
         apu = new APU();
 
